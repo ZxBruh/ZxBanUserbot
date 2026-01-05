@@ -1,33 +1,47 @@
-import time, json, os, io, sys, subprocess, importlib
-
+import time, json, os, sys, subprocess, importlib, random, string
 try:
     import requests
 except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
     import requests
 
-from contextlib import redirect_stdout
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import MessageEntityCustomEmoji
 
+# Данные API
 API_ID = 2040
 API_HASH = 'b18441a1ff607e10a989891a5462e627'
 CONFIG_FILE = 'config.json'
 MODULES_DIR = 'modules'
 
-if not os.path.exists(MODULES_DIR):
-    os.makedirs(MODULES_DIR)
+if not os.path.exists(MODULES_DIR): os.makedirs(MODULES_DIR)
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
-        default = {"info_template": "🛡️ **Zxban Status**", "ping_template": "⚡ **Pong!** `{time}` ms", "prefix": "!"}
+        # Генерируем случайный юзернейм для подсказки
+        rand_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        default = {
+            "prefix": "!",
+            "bot_token": "", # Сюда нужно будет вставить токен
+            "bot_username": f"zxban_{rand_suffix}",
+            "info_template": "🛡️ **Zxban Status**",
+            "ping_template": "⚡ **Pong!** `{time}` ms"
+        }
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(default, f, ensure_ascii=False, indent=4)
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 cfg = load_config()
+
+# Клиент юзербота
 client = TelegramClient('zxban_session', API_ID, API_HASH)
+# Клиент вспомогательного бота (запустится только если есть токен)
+bot_client = None
+
+if cfg.get("bot_token"):
+    bot_client = TelegramClient('zxban_bot', API_ID, API_HASH).start(bot_token=cfg["bot_token"])
+
 loaded_modules = {}
 
 def load_module(file_path):
@@ -41,13 +55,6 @@ def load_module(file_path):
         return True
     except Exception: return False
 
-def load_all_modules():
-    for file in os.listdir(MODULES_DIR):
-        if file.endswith(".py"): load_module(os.path.join(MODULES_DIR, file))
-
-async def edit_with_emoji(event, text, emoji_id):
-    await event.edit(text, formatting_entities=[MessageEntityCustomEmoji(offset=0, length=2, document_id=emoji_id)])
-
 @client.on(events.NewMessage(outgoing=True))
 async def main_handler(event):
     global cfg
@@ -58,67 +65,59 @@ async def main_handler(event):
     if not args: return
     cmd = args[0].lower()
 
-    if cmd == "инфо":
-        await edit_with_emoji(event, f"🛡️ {cfg['info_template']}", 5431682333653110201)
+    if cmd == "кфг":
+        if not cfg.get("bot_token"):
+            await event.edit(f"⚠️ **Кнопки не работают!**\nДля работы меню мне нужен Inline-бот.\n\n1. Напиши @BotFather\n2. Создай бота: `/{cfg['bot_username']}`\n3. Получи токен и напиши:\n`!set_token ТВОЙ_ТОКЕН`")
+            return
+        
+        # Если токен есть, используем Inline Query или отправку через бота
+        # В режиме юзербота кнопки отправляются через «switch_inline»
+        await event.edit(f"⚙️ **Настройки Zxban**\nИспользуйте кнопки ниже:", 
+            buttons=[
+                [Button.inline("📦 Встроенные", data="mods_int")],
+                [Button.inline("🌐 Внешние", data="mods_ext")]
+            ])
+
+    elif cmd == "set_token":
+        if len(args) > 1:
+            cfg['bot_token'] = args[1]
+            with open(CONFIG_FILE, "w") as f: json.dump(cfg, f)
+            await event.edit("✅ **Токен сохранен! Перезагружаюсь для активации кнопок...**")
+            os.execl(sys.executable, sys.executable, *sys.argv)
 
     elif cmd == "пинг":
         start = time.time()
         await event.edit("🚀")
         ms = round((time.time() - start) * 1000)
-        # ИСПРАВЛЕННАЯ СТРОКА ТУТ:
-        await edit_with_emoji(event, f"⚡ {cfg['ping_template'].replace('{time}', str(ms))}", 5447103212130101411)
-
-    elif cmd == "загрузить":
-        reply = await event.get_reply_message()
-        if reply and reply.file and reply.file.name.endswith(".py"):
-            path = await reply.download_media(file=MODULES_DIR)
-            if load_module(path): await event.edit(f"✅ Модуль `{os.path.basename(path)}` загружен")
-            else: await event.edit("❌ Ошибка модуля")
-        elif len(args) > 1 and args[1].startswith("http"):
-            url = args[1].replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
-            name = url.split("/")[-1]
-            r = requests.get(url)
-            path = os.path.join(MODULES_DIR, name)
-            with open(path, "wb") as f: f.write(r.content)
-            if load_module(path): await event.edit(f"✅ `{name}` загружен")
-            else: await event.edit("❌ Ошибка")
-
-    elif cmd == "префикс":
-        if len(args) > 1:
-            cfg['prefix'] = args[1]
-            with open(CONFIG_FILE, "w") as f: json.dump(cfg, f)
-            await event.edit(f"✅ Префикс: `{args[1]}`. Рестарт...")
-            os.execl(sys.executable, sys.executable, *sys.argv)
-
-    elif cmd == "кфг":
-        btns = [[Button.inline("📦 Встроенные", data="mods_int")], [Button.inline("🌐 Внешние", data="mods_ext")]]
-        await event.edit("**⚙️ Настройки Zxban**", buttons=btns)
+        await event.edit(f"⚡ {cfg['ping_template'].replace('{time}', str(ms))}", 
+                         formatting_entities=[MessageEntityCustomEmoji(offset=0, length=2, document_id=5447103212130101411)])
 
     elif cmd == "апдейт":
-        msg = await event.edit("🔄 **Запуск обновления...**")
-        try:
-            subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE).communicate()
-            await msg.edit("✅ **Данные синхронизированы! Перезагрузка...**")
-            time.sleep(1)
-            os.execl(sys.executable, sys.executable, *sys.argv)
-        except Exception as e:
-            await event.edit(f"❌ Ошибка: {e}")
+        await event.edit("🔄 **Обновление...**")
+        subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE).communicate()
+        os.execl(sys.executable, sys.executable, *sys.argv)
 
-@client.on(events.CallbackQuery)
-async def callback_handler(event):
-    data = event.data.decode()
-    if data == "mods_int":
-        await event.edit("🛠 **Встроенные:**\n• Loader\n• Config\n• Update", buttons=[Button.inline("⬅️ Назад", data="back")])
-    elif data == "mods_ext":
-        mods = "\n".join([f"• {m}.py" for m in loaded_modules.keys()]) or "Нет модулей"
-        await event.edit(f"📂 **Внешние:**\n{mods}", buttons=[Button.inline("⬅️ Назад", data="back")])
-    elif data == "back":
-        btns = [[Button.inline("📦 Встроенные", data="mods_int")], [Button.inline("🌐 Внешние", data="mods_ext")]]
-        await event.edit("**⚙️ Настройки Zxban**", buttons=btns)
+# Обработка нажатий на кнопки (через бот-аккаунт)
+if bot_client:
+    @bot_client.on(events.CallbackQuery)
+    async def callback_handler(event):
+        data = event.data.decode()
+        if data == "mods_int":
+            await event.edit("🛠 **Встроенные модули:**\n• Core\n• Loader\n• Config", buttons=[Button.inline("⬅️ Назад", data="back")])
+        elif data == "mods_ext":
+            mods = "\n".join([f"• {m}" for m in loaded_modules.keys()]) or "Нет"
+            await event.edit(f"📂 **Внешние модули:**\n{mods}", buttons=[Button.inline("⬅️ Назад", data="back")])
+        elif data == "back":
+            await event.edit("⚙️ **Настройки Zxban**", buttons=[
+                [Button.inline("📦 Встроенные", data="mods_int")],
+                [Button.inline("🌐 Внешние", data="mods_ext")]
+            ])
 
 async def main():
-    load_all_modules()
+    for file in os.listdir(MODULES_DIR):
+        if file.endswith(".py"): load_module(os.path.join(MODULES_DIR, file))
     await client.start()
+    print("Zxban запущен!")
     await client.run_until_disconnected()
 
 if __name__ == '__main__':
