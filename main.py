@@ -1,5 +1,12 @@
 import time, json, os, io, sys, subprocess, importlib
-import requests  # Добавлен импорт requests
+
+# Авто-установка библиотек
+try:
+    import requests
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
+    import requests
+
 from contextlib import redirect_stdout
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import MessageEntityCustomEmoji
@@ -9,12 +16,17 @@ API_HASH = 'b18441a1ff607e10a989891a5462e627'
 CONFIG_FILE = 'config.json'
 MODULES_DIR = 'modules'
 
+# Авто-создание папки модулей
 if not os.path.exists(MODULES_DIR):
     os.makedirs(MODULES_DIR)
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
-        default = {"info_template": "🛡️ **Zxban Status**", "ping_template": "⚡ **Pong!** `{time}` ms", "prefix": "!"}
+        default = {
+            "info_template": "🛡️ **Zxban Status**",
+            "ping_template": "⚡ **Pong!** `{time}` ms",
+            "prefix": "!"
+        }
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(default, f, ensure_ascii=False, indent=4)
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -35,7 +47,7 @@ def load_module(file_path):
             mod.init(client)
         return True
     except Exception as e:
-        print(f"Error in {module_name}: {e}")
+        print(f"Error loading {module_name}: {e}")
         return False
 
 def load_all_modules():
@@ -59,48 +71,48 @@ async def main_handler(event):
         if reply and reply.file and reply.file.name.endswith(".py"):
             path = await reply.download_media(file=MODULES_DIR)
             if load_module(path):
-                await event.edit(f"✅ Mod `{os.path.basename(path)}` ok")
+                await event.edit(f"✅ Модуль `{os.path.basename(path)}` установлен")
             else:
-                await event.edit("❌ Load error")
+                await event.edit("❌ Ошибка в коде модуля")
         elif len(args) > 1 and args[1].startswith("http"):
             try:
                 url = args[1].replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
                 name = url.split("/")[-1]
                 r = requests.get(url)
-                r.raise_for_status()
                 path = os.path.join(MODULES_DIR, name)
                 with open(path, "wb") as f: f.write(r.content)
                 if load_module(path):
-                    await event.edit(f"✅ `{name}` downloaded")
+                    await event.edit(f"✅ `{name}` загружен")
                 else:
-                    await event.edit("❌ Init error")
+                    await event.edit("❌ Ошибка инициализации")
             except Exception as e:
-                await event.edit(f"❌ HTTP Error: {e}")
-        else:
-            await event.edit("Reply to .py or provide link")
+                await event.edit(f"❌ Ошибка сети: {e}")
 
     elif cmd == "префикс":
         if len(args) > 1:
             cfg['prefix'] = args[1]
             with open(CONFIG_FILE, "w") as f: json.dump(cfg, f)
-            await event.edit(f"✅ Prefix: `{args[1]}`. Restarting...")
+            await event.edit(f"✅ Префикс изменен на `{args[1]}`. Рестарт...")
             os.execl(sys.executable, sys.executable, *sys.argv)
 
     elif cmd == "кфг":
-        buttons = [[Button.inline("📦 Встроенные", data="mods_int")], [Button.inline("🌐 Внешние", data="mods_ext")]]
-        await event.edit("**⚙️ Zxban Menu**", buttons=buttons)
+        btns = [
+            [Button.inline("📦 Встроенные", data="mods_int")],
+            [Button.inline("🌐 Внешние", data="mods_ext")]
+        ]
+        await event.edit("**⚙️ Настройки Zxban**", buttons=btns)
 
 @client.on(events.CallbackQuery)
 async def callback_handler(event):
     data = event.data.decode()
     if data == "mods_int":
-        await event.edit("🛠 **Internal:**\n• Loader\n• Config\n• Prefix", buttons=[Button.inline("⬅️ Back", data="back")])
+        await event.edit("🛠 **Встроенные:**\n• Loader v1.0\n• Config Manager\n• Prefix System", buttons=[Button.inline("⬅️ Назад", data="back")])
     elif data == "mods_ext":
-        mods = "\n".join([f"• {m}.py" for m in loaded_modules.keys()]) or "Empty"
-        await event.edit(f"📂 **External modules:**\n{mods}", buttons=[Button.inline("⬅️ Back", data="back")])
+        mods = "\n".join([f"• {m}.py" for m in loaded_modules.keys()]) or "Нет модулей"
+        await event.edit(f"📂 **Внешние модули:**\n{mods}", buttons=[Button.inline("⬅️ Назад", data="back")])
     elif data == "back":
-        buttons = [[Button.inline("📦 Встроенные", data="mods_int")], [Button.inline("🌐 Внешние", data="mods_ext")]]
-        await event.edit("**⚙️ Zxban Menu**", buttons=buttons)
+        btns = [[Button.inline("📦 Встроенные", data="mods_int")], [Button.inline("🌐 Внешние", data="mods_ext")]]
+        await event.edit("**⚙️ Настройки Zxban**", buttons=btns)
 
 async def main():
     load_all_modules()
