@@ -1,0 +1,95 @@
+import sys
+import os
+import json
+import subprocess
+import asyncio
+from pyrogram import Client, filters
+
+# Имя файла для хранения настроек
+CONFIG_FILE = "user_config.json"
+
+# Дефолтные настройки
+default_config = {
+    "info_template": "<b>ℹ️ Инфо:</b> zxban активен!",
+    "ping_template": "<b>⏱ Пинг:</b> {time} мс",
+    "help_template": "<b>📜 Список команд:</b>\n!хелп\n!кфг\n!е\n!терминал"
+}
+
+# Загрузка конфига
+if not os.path.exists(CONFIG_FILE):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(default_config, f, ensure_ascii=False, indent=4)
+
+def load_config():
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_config(config):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+
+app = Client("my_account")
+
+@app.on_message(filters.me & filters.command("хелп", prefixes="!"))
+async def help_cmd(client, message):
+    config = load_config()
+    await message.edit(config["help_template"])
+
+@app.on_message(filters.me & filters.command("кфг", prefixes="!"))
+async def config_cmd(client, message):
+    config = load_config()
+    args = message.text.split(maxsplit=2)
+    
+    if len(args) < 3:
+        await message.edit("<b>Формат:</b> !кфг [пинг/инфо/хелп] [текст]")
+        return
+
+    key = args[1].lower()
+    value = args[2]
+
+    if key == "пинг":
+        config["ping_template"] = value
+    elif key == "инфо":
+        config["info_template"] = value
+    elif key == "хелп":
+        config["help_template"] = value
+    else:
+        await message.edit("❌ Неверный ключ. Используй: пинг, инфо, хелп.")
+        return
+
+    save_config(config)
+    await message.edit(f"✅ Настройка <b>{key}</b> обновлена!")
+
+@app.on_message(filters.me & filters.command("е", prefixes="!"))
+async def execute_cmd(client, message):
+    code = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
+    if not code:
+        return await message.edit("Введите код для выполнения!")
+    
+    await message.edit("<b>Выполняю...</b>")
+    try:
+        # Здесь мы перехватываем вывод print()
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            exec(code)
+        out = f.getvalue()
+        await message.edit(f"<b>Код:</b>\n<code>{code}</code>\n\n<b>Результат:</b>\n<code>{out}</code>")
+    except Exception as e:
+        await message.edit(f"<b>Ошибка:</b>\n<code>{e}</code>")
+
+@app.on_message(filters.me & filters.command("терминал", prefixes="!"))
+async def terminal_cmd(client, message):
+    cmd = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
+    if not cmd:
+        return await message.edit("Введите команду терминала!")
+
+    await message.edit(f"<b>Запуск:</b> <code>{cmd}</code>")
+    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stdout, stderr = process.communicate()
+    
+    result = stdout or stderr
+    await message.edit(f"<b>Терминал:</b>\n<code>{result}</code>")
+
+app.run()
