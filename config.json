@@ -1,5 +1,7 @@
 {
+    "prefix": "!",
+    "bot_token": "",
+    "bot_username": "",
     "info_template": "🛡️ **Zxban Status**\n---\n**Статус:** Работает\n**Платформа:** Termux",
-    "ping_template": "⚡ **Pong!** `{time}` ms",
-    "prefix": "!"
+    "ping_template": "⚡ **Pong!** `{time}` ms"
 }
